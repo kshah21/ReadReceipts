@@ -1,19 +1,26 @@
 package com.kshah21.readreceipts;
 
+import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import java.net.URI;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -21,6 +28,7 @@ import com.googlecode.tesseract.android.TessBaseAPI;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -31,9 +39,11 @@ import java.util.Map;
 public class MainActivity extends AppCompatActivity {
 
     private Button cameraButton;
+    private ImageView receiptView;
     private TextView receiptResult;
     private TessBaseAPI tessAPI;
     private String currentPhotoPath;
+    private Context context;
     private boolean hasCamPermission = false;
     private boolean hasReadPermission = false;
     private boolean hasWritePermission = false;
@@ -43,6 +53,9 @@ public class MainActivity extends AppCompatActivity {
     private final String WRITE_PERMISSION="android.permission.WRITE_EXTERNAL_STORAGE";
     private final String READ_PERMISSION="android.permission.READ_EXTERNAL_STORAGE";
     private final Integer GRANTED = PackageManager.PERMISSION_GRANTED;
+    private final int REQUEST_ALL_PERMS = 512;
+    private final int REQUEST_TAKE_PIC = 1024;
+    private final int REQUEST_PICK_PIC = 2048;
 
     /**
      * Inflate views and setup
@@ -53,7 +66,9 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         //Bind fields to respective GUI
         cameraButton = (Button) findViewById(R.id.camera_button);
-        receiptResult = (TextView) findViewById(R.id.ocr_return);
+        receiptView = (ImageView) findViewById(R.id.ocr_image);
+        receiptResult = (TextView) findViewById(R.id.ocr_result);
+        context = this;
     }
 
     /**
@@ -86,10 +101,57 @@ public class MainActivity extends AppCompatActivity {
                 //Error occurred while creating the file
             }
             if(photoFile!=null){
-                cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(photoFile));
-                startActivityForResult(cameraIntent,1024);
+                Uri photoURI;
+                if(Build.VERSION.SDK_INT>=24){
+                    photoURI=FileProvider.getUriForFile(this,"com.kshah21.readreceipts.provider",photoFile);
+                    //photoURI = Uri.fromFile(photoFile);
+                }
+                else{
+                    photoURI = Uri.fromFile(photoFile);
+                }
+                cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);
+                startActivityForResult(cameraIntent,REQUEST_TAKE_PIC);
             }
         }
+    }
+
+    /**
+     * Called after returning from Pictures Intents
+     */
+    protected void onActivityResult(int requestCode, int resultCode, Intent data){
+        switch (requestCode){
+            case REQUEST_TAKE_PIC:{
+                if(resultCode== Activity.RESULT_OK){
+                    setPic();
+                }
+                break;
+            }
+        }
+    }
+
+    /**
+     * Obtain picture, set to image view, and send to ocr
+     */
+    private void setPic(){
+        //Obtain imageView dimensions
+        int viewHeight = receiptView.getHeight();
+        int viewWidth = receiptView.getWidth();
+        //Obtain scale factor
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds=true;
+        BitmapFactory.decodeFile(currentPhotoPath,options);
+        int picHeight = options.outHeight;
+        int picWidth = options.outWidth;
+        int scaleX = Math.min(picWidth/viewWidth,picHeight/viewHeight);
+        //Obtain full sized pic for ocr
+        options.inJustDecodeBounds=false;
+        Bitmap rawPic= BitmapFactory.decodeFile(currentPhotoPath,options);
+        //Obtain scaled pic for imageView
+        options.inSampleSize = scaleX << 1;
+        Bitmap scaledPic= BitmapFactory.decodeFile(currentPhotoPath,options);
+        receiptView.setImageBitmap(scaledPic);
+
+        //OCR(rawPic);
     }
 
     /**
@@ -119,8 +181,8 @@ public class MainActivity extends AppCompatActivity {
     View.OnClickListener cameraListener= new View.OnClickListener(){
 
         public void onClick(View view) {
-            //launchCamera();
             Toast.makeText(MainActivity.this,"Camera Button Clicked!!",Toast.LENGTH_LONG).show();
+            launchCamera();
         }
     };
 
@@ -140,7 +202,7 @@ public class MainActivity extends AppCompatActivity {
         }
         if(!permissionList.isEmpty()){
             int size = permissionList.size();
-            ActivityCompat.requestPermissions(this,permissionList.toArray(new String[size]),1024);
+            ActivityCompat.requestPermissions(this,permissionList.toArray(new String[size]),REQUEST_ALL_PERMS);
         }
         else{
             cameraButton.setOnClickListener(cameraListener);
@@ -153,7 +215,7 @@ public class MainActivity extends AppCompatActivity {
      */
     public void onRequestPermissionsResult(int code, String[] permissions, int[] grantResults){
         switch(code){
-            case 1024:{
+            case REQUEST_ALL_PERMS:{
                 Map<String,Integer> perms = new HashMap<String,Integer>();
                 perms.put(CAM_PERMISSION,GRANTED);
                 perms.put(READ_PERMISSION,GRANTED);
@@ -168,23 +230,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                     else{
                         endApp();
-                        /* if(ActivityCompat.shouldShowRequestPermissionRationale(this,CAM_PERMISSION)
-                                || ActivityCompat.shouldShowRequestPermissionRationale(this,READ_PERMISSION)
-                                || ActivityCompat.shouldShowRequestPermissionRationale(this,WRITE_PERMISSION)){
-                            showDialogOK("Camera, Read, and Write Permissions are required for this app. Try again.",
-                                    new DialogInterface.OnMultiChoiceClickListener(){
-                                        public void onClick(DialogInterface dialogInterface, int i, boolean b) {
-                                            switch(i){
-                                                case DialogInterface.BUTTON_POSITIVE:
-                                                    checkPermissions();
-                                                    break;
-                                                case DialogInterface.BUTTON_NEGATIVE:
-                                                    //endApp();
-                                                    break;
-                                            }
-                                        }
-                                    });
-                        }*/
                     }
                 }
             }

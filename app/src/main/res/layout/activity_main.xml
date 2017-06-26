@@ -13,14 +13,21 @@
         android:text="Camera"
         tools:layout_editor_absoluteX="16dp"
         tools:layout_editor_absoluteY="15dp" />
+    <ImageView
+        android:id="@+id/ocr_image"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:layout_above="@+id/ocr_result"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentStart="true" />
 
     <TextView
-        android:id="@+id/ocr_return"
+        android:id="@+id/ocr_result"
         android:layout_width="368dp"
         android:layout_height="200dp"
-        android:layout_centerHorizontal="true"
-        android:layout_centerVertical="true"
         android:text="TextView"
-        android:textAlignment="center" />
+        android:textAlignment="center"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true" />
 
 </RelativeLayout>
