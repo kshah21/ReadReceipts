@@ -1,23 +1,32 @@
 package com.kshah21.readreceipts;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import android.content.ContentResolver;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import java.net.URI;
+
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContentResolverCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -39,33 +48,38 @@ import java.util.Map;
 public class MainActivity extends AppCompatActivity {
 
     private Button cameraButton;
+    private Button galleryButton;
     private ImageView receiptView;
     private TextView receiptResult;
     private TessBaseAPI tessAPI;
     private String currentPhotoPath;
     private Context context;
-    private boolean hasCamPermission = false;
-    private boolean hasReadPermission = false;
-    private boolean hasWritePermission = false;
-    private final String DATA_PATH = Environment.getExternalStorageDirectory() + "/Tess";
+
     private final String TESS_DATA = "/tessdata";
+    private final String DATA_PATH = Environment.getExternalStorageDirectory() + "/Receipts";
     private final String CAM_PERMISSION="android.permission.CAMERA";
     private final String WRITE_PERMISSION="android.permission.WRITE_EXTERNAL_STORAGE";
     private final String READ_PERMISSION="android.permission.READ_EXTERNAL_STORAGE";
+
     private final Integer GRANTED = PackageManager.PERMISSION_GRANTED;
     private final int REQUEST_ALL_PERMS = 512;
     private final int REQUEST_TAKE_PIC = 1024;
     private final int REQUEST_PICK_PIC = 2048;
 
+    private final String TAG = "MainActivity.java";
+    private String result;
+
     /**
      * Inflate views and setup
      */
     protected void onCreate(Bundle savedInstanceState) {
+        System.out.println("On Create");
         //Create and inflate layout
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         //Bind fields to respective GUI
         cameraButton = (Button) findViewById(R.id.camera_button);
+        galleryButton = (Button) findViewById(R.id.gallery_button);
         receiptView = (ImageView) findViewById(R.id.ocr_image);
         receiptResult = (TextView) findViewById(R.id.ocr_result);
         context = this;
@@ -75,6 +89,7 @@ public class MainActivity extends AppCompatActivity {
      * Check permissions
      */
     protected void onResume(){
+        System.out.println("On Resume");
         super.onResume();
         if(Build.VERSION.SDK_INT>=23){
             checkPermissions();
@@ -85,6 +100,7 @@ public class MainActivity extends AppCompatActivity {
      * Launches Camera Open
      */
     private void launchCamera(){
+        System.out.println("Launch Camera");
         String imgPath=DATA_PATH+"/imgs";
         File dir = new File(imgPath);
         if(!dir.exists()){
@@ -104,7 +120,6 @@ public class MainActivity extends AppCompatActivity {
                 Uri photoURI;
                 if(Build.VERSION.SDK_INT>=24){
                     photoURI=FileProvider.getUriForFile(this,"com.kshah21.readreceipts.provider",photoFile);
-                    //photoURI = Uri.fromFile(photoFile);
                 }
                 else{
                     photoURI = Uri.fromFile(photoFile);
@@ -116,9 +131,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * Launches Gallery Open
+     */
+    private void launchGallery(){
+        Intent galleryIntent = new Intent(Intent.ACTION_GET_CONTENT);
+        galleryIntent.setType("image/*");
+        startActivityForResult(galleryIntent,REQUEST_PICK_PIC);
+    }
+
+    /**
      * Called after returning from Pictures Intents
      */
     protected void onActivityResult(int requestCode, int resultCode, Intent data){
+        System.out.println("On Result");
         switch (requestCode){
             case REQUEST_TAKE_PIC:{
                 if(resultCode== Activity.RESULT_OK){
@@ -126,44 +151,25 @@ public class MainActivity extends AppCompatActivity {
                 }
                 break;
             }
+            case REQUEST_PICK_PIC:{
+                if(resultCode==Activity.RESULT_OK){
+                    Uri imageUri = data.getData();
+                    setPic(imageUri);
+                }
+            }
         }
-    }
-
-    /**
-     * Obtain picture, set to image view, and send to ocr
-     */
-    private void setPic(){
-        //Obtain imageView dimensions
-        int viewHeight = receiptView.getHeight();
-        int viewWidth = receiptView.getWidth();
-        //Obtain scale factor
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inJustDecodeBounds=true;
-        BitmapFactory.decodeFile(currentPhotoPath,options);
-        int picHeight = options.outHeight;
-        int picWidth = options.outWidth;
-        int scaleX = Math.min(picWidth/viewWidth,picHeight/viewHeight);
-        //Obtain full sized pic for ocr
-        options.inJustDecodeBounds=false;
-        Bitmap rawPic= BitmapFactory.decodeFile(currentPhotoPath,options);
-        //Obtain scaled pic for imageView
-        options.inSampleSize = scaleX << 1;
-        Bitmap scaledPic= BitmapFactory.decodeFile(currentPhotoPath,options);
-        receiptView.setImageBitmap(scaledPic);
-
-        //OCR(rawPic);
     }
 
     /**
      * http://developer.android.com/training/camera/photobasics.html
      */
     private File createImageFile() throws IOException {
+        System.out.println("Create Image File");
         // Create an image file name
         String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss")
                 .format(new Date());
         String imageFileName = "JPEG_" + timeStamp + "_";
-        String storageDir = Environment.getExternalStorageDirectory()
-                + "/TessOCR";
+        String storageDir = DATA_PATH+"/imgs";
         File dir = new File(storageDir);
         if (!dir.exists())
             dir.mkdir();
@@ -172,8 +178,116 @@ public class MainActivity extends AppCompatActivity {
 
         // Save a file: path for use with ACTION_VIEW intents
         currentPhotoPath = image.getAbsolutePath();
+        System.out.println(currentPhotoPath);
         return image;
     }
+
+    /**
+     * Obtain picture, set to image view, and send to ocr
+     */
+    private void setPic(){
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds=false;
+        Bitmap bitmap= BitmapFactory.decodeFile(currentPhotoPath,options);
+        bitmap = fixPic(bitmap);
+        receiptView.setImageBitmap(bitmap);
+        setUpTess();
+        OCR(bitmap);
+    }
+
+    /**
+     * Obtain picture, set to image view, and send to ocr
+     */
+    private void setPic(Uri imageUri){
+        try {
+            Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), imageUri);
+            bitmap.copy(Bitmap.Config.ARGB_8888,true);
+            bitmap.setDensity(300);
+            receiptView.setImageBitmap(bitmap);
+            setUpTess();
+            OCR(bitmap);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    /**
+     * Rotates iamge taken by camera if necessary
+     */
+    private Bitmap fixPic(Bitmap bitmap){
+        try {
+            ExifInterface exif = new ExifInterface(currentPhotoPath);
+            int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION,ExifInterface.ORIENTATION_NORMAL);
+            int rotate = 0;
+            switch (orientation){
+                case ExifInterface.ORIENTATION_ROTATE_90:
+                    rotate=90;
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_180:
+                    rotate=180;
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_270:
+                    rotate=270;
+                    break;
+            }
+            System.out.println(rotate);
+            if(rotate!=0){
+                int width = bitmap.getWidth();
+                int height = bitmap.getHeight();
+                Matrix matrix = new Matrix();
+                matrix.preRotate(rotate);
+                bitmap = Bitmap.createBitmap(bitmap,0,0,width,height,matrix,true);
+            }
+            return bitmap.copy(Bitmap.Config.ARGB_8888,true);
+        }
+        catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * Copies over tess training data onto phone memory
+     */
+    private void setUpTess(){
+        System.out.println("Set Up Tess");
+        try{
+            File dir = new File(DATA_PATH + TESS_DATA);
+            if(!dir.exists()){
+                dir.mkdir();
+            }
+            String fileList[] = getAssets().list("");
+            for(String fileName : fileList){
+                String pathToDataFile = DATA_PATH+TESS_DATA+"/"+fileName;
+                if(!(new File(pathToDataFile)).exists()){
+                    InputStream in = getAssets().open(fileName);
+                    OutputStream out = new FileOutputStream(pathToDataFile);
+                    byte [] buff = new byte[1024];
+                    int len ;
+                    while(( len = in.read(buff)) > 0){
+                        out.write(buff,0,len);
+                    }
+                    in.close();
+                    out.close();
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, e.getMessage());
+        }
+    }
+
+    /**
+     * Processes provided bitmap and produces text equivalent
+     */
+    private void OCR(final Bitmap bitmap){
+        System.out.println("OCR");
+        new OCR_Task().execute(bitmap);
+    }
+
+
+    /****************************Utility Functions****************************/
 
     /**
      * Listener for Camera Button
@@ -183,6 +297,17 @@ public class MainActivity extends AppCompatActivity {
         public void onClick(View view) {
             Toast.makeText(MainActivity.this,"Camera Button Clicked!!",Toast.LENGTH_LONG).show();
             launchCamera();
+        }
+    };
+
+    /**
+     * Listener for Gallery Button
+     */
+    View.OnClickListener galleryListener= new View.OnClickListener(){
+
+        public void onClick(View view) {
+            Toast.makeText(MainActivity.this,"Camera Button Clicked!!",Toast.LENGTH_LONG).show();
+            launchGallery();
         }
     };
 
@@ -206,6 +331,8 @@ public class MainActivity extends AppCompatActivity {
         }
         else{
             cameraButton.setOnClickListener(cameraListener);
+            galleryButton.setOnClickListener(galleryListener);
+
         }
     }
 
@@ -213,7 +340,8 @@ public class MainActivity extends AppCompatActivity {
      * Requests permissions from user and sets listener for camera use button
      * Need to figure out how to explain rationale if denied/never ask again
      */
-    public void onRequestPermissionsResult(int code, String[] permissions, int[] grantResults){
+    public void onRequestPermissionsResult(int code, String[] permissions, int[] grantResults)
+    {
         switch(code){
             case REQUEST_ALL_PERMS:{
                 Map<String,Integer> perms = new HashMap<String,Integer>();
@@ -227,31 +355,46 @@ public class MainActivity extends AppCompatActivity {
                     if(perms.get(CAM_PERMISSION)==GRANTED && perms.get(READ_PERMISSION)==GRANTED
                             && perms.get(WRITE_PERMISSION)==GRANTED){
                         cameraButton.setOnClickListener(cameraListener);
+                        galleryButton.setOnClickListener(galleryListener);
                     }
                     else{
-                        endApp();
                     }
                 }
             }
         }
     }//End onPermissionRequest
 
+    /**
+     * AsyncThread Class which handles OCR processing
+     */
+    private class OCR_Task extends AsyncTask<Bitmap,String,String> {
+        @Override
+        protected void onPreExecute() {
+            receiptResult.setText("Obtained Image");
+        }
 
-    private void showDialogOK(String message, DialogInterface.OnMultiChoiceClickListener okListener) {
-        new AlertDialog.Builder(this)
-                .setMessage(message)
-                .setPositiveButton("OK", (DialogInterface.OnClickListener) okListener)
-                .setNegativeButton("Cancel", (DialogInterface.OnClickListener) okListener)
-                .create()
-                .show();
-    }
+        @Override
+        protected String doInBackground(Bitmap... bitmaps) {
+            tessAPI = new TessBaseAPI();
+            tessAPI.init(DATA_PATH,"eng");
+            tessAPI.setImage(bitmaps[0]);
+            publishProgress("Processing Image");
+            result = tessAPI.getUTF8Text();
+            tessAPI.end();
+            return result;
+        }
 
-    public void endApp() {
-        if (Build.VERSION.SDK_INT >= 21) { //Is the user running Lollipop or above?
-            finishAndRemoveTask(); //If yes, run the new fancy function to end the app and remove it from the Task Manager.
-        } else {
-            finish(); //If not, then just end the app (without removing the task completely).
+        @Override
+        protected void onProgressUpdate(String... values) {
+            receiptResult.setText(values[0]);
+        }
+
+        @Override
+        protected void onPostExecute(String s) {
+            receiptResult.setText(result);
         }
     }
 
 }//End class
+
+
