@@ -44,6 +44,8 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -284,6 +286,33 @@ public class MainActivity extends AppCompatActivity {
     private void OCR(final Bitmap bitmap){
         System.out.println("OCR");
         new OCR_Task().execute(bitmap);
+
+    }
+
+    /**
+     * Checks OCR Result for varied regexs which
+     * represent Total Amount Spent
+     */
+    private void obtainTotal(){
+        //Will not work if total is preceded by a number
+        //Seconday search should be for subtotal + tax!
+        //Look for Tender
+        //String regex = "(?<![\\w\\d])(?i)total(?![\\w\\d])";
+        String regex = "(?<![\\w\\d])(?i)(total|tender)(\\s{0,3})(\\${0,1})(\\d{1,})(\\.{0,1})(\\d{0,2})";
+        Pattern pattern = Pattern.compile(regex);
+        Matcher match = pattern.matcher(result);
+
+        boolean foundTotal = match.find();
+        if(!foundTotal){
+            System.out.println("Total Not Found");
+            return;
+        }
+        int index = match.start();
+        String total = match.group();
+        System.out.println(total);
+        receiptResult.setText(total);
+
+
     }
 
 
@@ -375,8 +404,14 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         protected String doInBackground(Bitmap... bitmaps) {
+            String upLetters = "ACBDEFGHIJKLMNOPQRSTUVWXYZ";
+            String downLetters="acbcdefghijklmnopqrstuvwxyz";
+            String numbers="0123456789";
+            String symbols="=*$.- ";
+            String whitelist = upLetters + downLetters + numbers + symbols;
             tessAPI = new TessBaseAPI();
             tessAPI.init(DATA_PATH,"eng");
+            tessAPI.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST,whitelist);
             tessAPI.setImage(bitmaps[0]);
             publishProgress("Processing Image");
             result = tessAPI.getUTF8Text();
@@ -392,6 +427,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected void onPostExecute(String s) {
             receiptResult.setText(result);
+            obtainTotal();
         }
     }
 
