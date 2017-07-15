@@ -1,11 +1,9 @@
 package com.kshah21.readreceipts;
 
 import android.app.Activity;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
@@ -21,7 +19,6 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContentResolverCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
@@ -34,10 +31,12 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.googlecode.tesseract.android.TessBaseAPI;
+import io.realm.Realm;
+import io.realm.RealmConfiguration;
+import io.realm.RealmResults;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.URI;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -56,6 +55,8 @@ public class MainActivity extends AppCompatActivity {
     private TessBaseAPI tessAPI;
     private String currentPhotoPath;
     private Context context;
+    private Realm realm;
+    private String result;
 
     private final String TESS_DATA = "/tessdata";
     private final String DATA_PATH = Environment.getExternalStorageDirectory() + "/Receipts";
@@ -68,8 +69,6 @@ public class MainActivity extends AppCompatActivity {
     private final int REQUEST_TAKE_PIC = 1024;
     private final int REQUEST_PICK_PIC = 2048;
 
-    private final String TAG = "MainActivity.java";
-    private String result;
 
     /**
      * Inflate views and setup
@@ -79,12 +78,29 @@ public class MainActivity extends AppCompatActivity {
         //Create and inflate layout
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        //Set context for later use
+        context = this;
         //Bind fields to respective GUI
         cameraButton = (Button) findViewById(R.id.camera_button);
         galleryButton = (Button) findViewById(R.id.gallery_button);
         receiptView = (ImageView) findViewById(R.id.ocr_image);
         receiptResult = (TextView) findViewById(R.id.ocr_result);
-        context = this;
+        //Init RealmDB
+        Realm.init(this);
+        realm=Realm.getDefaultInstance();
+        RealmConfiguration realmConfiguration = new RealmConfiguration
+                .Builder()
+                .deleteRealmIfMigrationNeeded()
+                .build();
+        Realm.setDefaultConfiguration(realmConfiguration);
+    }
+
+    /**
+     * Close RealmDB
+     */
+    protected void onDestroy() {
+        super.onDestroy();
+        realm.close(); // Remember to close Realm when done.
     }
 
     /**
@@ -276,7 +292,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, e.getMessage());
         }
     }
 
@@ -295,10 +310,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private void obtainTotal(){
         //Will not work if total is preceded by a number
-        //Seconday search should be for subtotal + tax!
-        //Look for Tender
-        //String regex = "(?<![\\w\\d])(?i)total(?![\\w\\d])";
-        String regex = "(?<![\\w\\d])(?i)(total|tender)(\\s{0,3})(\\${0,1})(\\d{1,})(\\.{0,1})(\\d{0,2})";
+        //Secondary search should be for subtotal + tax!
+        String regex = "(?<![\\w\\d])(?i)(total|tender|((t)(0|o)(t)(a|4)(l|1|i)))(\\s{0,4})(\\${0,1})(\\d{1,})(\\.{0,1})(\\d{0,2})"; // --> For t01al or some misread
+        //String regex = "(?<![\\w\\d])(?i)(total|tender)(\\s{0,3})(\\${0,1})(\\d{1,})(\\.{0,1})(\\d{0,2})";
         Pattern pattern = Pattern.compile(regex);
         Matcher match = pattern.matcher(result);
 
@@ -311,8 +325,46 @@ public class MainActivity extends AppCompatActivity {
         String total = match.group();
         System.out.println(total);
         receiptResult.setText(total);
+        result = total;
+        createExpense();
+    }
 
+    /**
+     * Parses Total obtained from OCR parse even further
+     * in order to obtain actual  dollar amount spent
+     */
+    private void obtainExpense(String total){
+        String expense="";
 
+    }
+
+    /**
+     * Create expense object from total and store into Realm
+     */
+    private void createExpense(){
+        realm.executeTransaction(new Realm.Transaction(){
+            @Override
+            public void execute(Realm realm) {
+                Expense expense = realm.createObject(Expense.class);
+                expense.setTotal(result);
+                expense.setCategory("Groceries");
+                expense.setStore("Target");
+                expense.setDate(new Date());
+            }
+        });
+        queryExpense();
+    }
+    private void queryExpense(){
+        RealmResults<Expense> results = realm.where(Expense.class).equalTo("store", "Target").findAll();
+        String target_expense="No Query Results";
+        for(Expense expense:results) {
+            target_expense = ("Total: " + expense.getTotal() + "\n");
+            target_expense+=("Category: " + expense.getCategory() + "\n");
+            target_expense+=("Store: " + expense.getStore() + "\n");
+            target_expense+=("Date: " + expense.getDate() + "\n");
+            target_expense+=("\n");
+        }
+        receiptResult.setText(target_expense);
     }
 
 
