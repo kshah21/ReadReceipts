@@ -1,15 +1,10 @@
-package com.kshah21.readreceipts;
+package com.kshah21.readreceipts.Activities;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
 
 import android.graphics.Matrix;
 import android.media.ExifInterface;
@@ -23,28 +18,31 @@ import android.support.v4.content.ContextCompat;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.googlecode.tesseract.android.TessBaseAPI;
+import com.github.mikephil.charting.data.BarData;
+import com.github.mikephil.charting.data.LineData;
+import com.kshah21.readreceipts.Bookkeeping.Expense;
+import com.kshah21.readreceipts.OCR.OCR;
+import com.kshah21.readreceipts.R;
+
 import io.realm.Realm;
 import io.realm.RealmConfiguration;
 import io.realm.RealmResults;
 
 import java.io.File;
 import java.io.IOException;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -52,14 +50,12 @@ public class MainActivity extends AppCompatActivity {
     private Button galleryButton;
     private ImageView receiptView;
     private TextView receiptResult;
-    private TessBaseAPI tessAPI;
-    private String currentPhotoPath;
-    private Context context;
-    private Realm realm;
-    private String result;
 
-    private final String TESS_DATA = "/tessdata";
-    private final String DATA_PATH = Environment.getExternalStorageDirectory() + "/Receipts";
+    private OCR ocr;
+    private Realm realm;
+    private String currentPhotoPath;
+
+    private final String DATA_PATH = Environment.getExternalStorageDirectory() + "/ReadReceipts";
     private final String CAM_PERMISSION="android.permission.CAMERA";
     private final String WRITE_PERMISSION="android.permission.WRITE_EXTERNAL_STORAGE";
     private final String READ_PERMISSION="android.permission.READ_EXTERNAL_STORAGE";
@@ -74,17 +70,16 @@ public class MainActivity extends AppCompatActivity {
      * Inflate views and setup
      */
     protected void onCreate(Bundle savedInstanceState) {
-        System.out.println("On Create");
         //Create and inflate layout
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        //Set context for later use
-        context = this;
+
         //Bind fields to respective GUI
         cameraButton = (Button) findViewById(R.id.camera_button);
         galleryButton = (Button) findViewById(R.id.gallery_button);
         receiptView = (ImageView) findViewById(R.id.ocr_image);
         receiptResult = (TextView) findViewById(R.id.ocr_result);
+
         //Init RealmDB
         Realm.init(this);
         realm=Realm.getDefaultInstance();
@@ -158,27 +153,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Called after returning from Pictures Intents
-     */
-    protected void onActivityResult(int requestCode, int resultCode, Intent data){
-        System.out.println("On Result");
-        switch (requestCode){
-            case REQUEST_TAKE_PIC:{
-                if(resultCode== Activity.RESULT_OK){
-                    setPic();
-                }
-                break;
-            }
-            case REQUEST_PICK_PIC:{
-                if(resultCode==Activity.RESULT_OK){
-                    Uri imageUri = data.getData();
-                    setPic(imageUri);
-                }
-            }
-        }
-    }
-
-    /**
      * http://developer.android.com/training/camera/photobasics.html
      */
     private File createImageFile() throws IOException {
@@ -201,6 +175,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * Called after returning from Pictures Intents
+     */
+    protected void onActivityResult(int requestCode, int resultCode, Intent data){
+        switch (requestCode){
+            case REQUEST_TAKE_PIC:{
+                if(resultCode== Activity.RESULT_OK){
+                    setPic();
+                }
+                break;
+            }
+            case REQUEST_PICK_PIC:{
+                if(resultCode==Activity.RESULT_OK){
+                    Uri imageUri = data.getData();
+                    setPic(imageUri);
+                }
+            }
+        }
+    }
+
+    /**
      * Obtain picture, set to image view, and send to ocr
      */
     private void setPic(){
@@ -209,8 +203,9 @@ public class MainActivity extends AppCompatActivity {
         Bitmap bitmap= BitmapFactory.decodeFile(currentPhotoPath,options);
         bitmap = fixPic(bitmap);
         receiptView.setImageBitmap(bitmap);
-        setUpTess();
-        OCR(bitmap);
+
+        ocr = new OCR(this);
+        new OCR_Task().execute(bitmap);
     }
 
     /**
@@ -222,8 +217,9 @@ public class MainActivity extends AppCompatActivity {
             bitmap.copy(Bitmap.Config.ARGB_8888,true);
             bitmap.setDensity(300);
             receiptView.setImageBitmap(bitmap);
-            setUpTess();
-            OCR(bitmap);
+
+            ocr = new OCR(this);
+            new OCR_Task().execute(bitmap);
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -232,7 +228,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Rotates iamge taken by camera if necessary
+     * Rotates image taken by camera if necessary
      */
     private Bitmap fixPic(Bitmap bitmap){
         try {
@@ -267,81 +263,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Copies over tess training data onto phone memory
-     */
-    private void setUpTess(){
-        System.out.println("Set Up Tess");
-        try{
-            File dir = new File(DATA_PATH + TESS_DATA);
-            if(!dir.exists()){
-                dir.mkdir();
-            }
-            String fileList[] = getAssets().list("");
-            for(String fileName : fileList){
-                String pathToDataFile = DATA_PATH+TESS_DATA+"/"+fileName;
-                if(!(new File(pathToDataFile)).exists()){
-                    InputStream in = getAssets().open(fileName);
-                    OutputStream out = new FileOutputStream(pathToDataFile);
-                    byte [] buff = new byte[1024];
-                    int len ;
-                    while(( len = in.read(buff)) > 0){
-                        out.write(buff,0,len);
-                    }
-                    in.close();
-                    out.close();
-                }
-            }
-        } catch (Exception e) {
-        }
-    }
-
-    /**
-     * Processes provided bitmap and produces text equivalent
-     */
-    private void OCR(final Bitmap bitmap){
-        System.out.println("OCR");
-        new OCR_Task().execute(bitmap);
-
-    }
-
-    /**
-     * Checks OCR Result for varied regexs which
-     * represent Total Amount Spent
-     */
-    private void obtainTotal(){
-        //Will not work if total is preceded by a number
-        //Secondary search should be for subtotal + tax!
-        String regex = "(?<![\\w\\d])(?i)(total|tender|((t)(0|o)(t)(a|4)(l|1|i)))(\\s{0,4})(\\${0,1})(\\d{1,})(\\.{0,1})(\\d{0,2})"; // --> For t01al or some misread
-        //String regex = "(?<![\\w\\d])(?i)(total|tender)(\\s{0,3})(\\${0,1})(\\d{1,})(\\.{0,1})(\\d{0,2})";
-        Pattern pattern = Pattern.compile(regex);
-        Matcher match = pattern.matcher(result);
-
-        boolean foundTotal = match.find();
-        if(!foundTotal){
-            System.out.println("Total Not Found");
-            return;
-        }
-        int index = match.start();
-        String total = match.group();
-        System.out.println(total);
-        receiptResult.setText(total);
-        result = total;
-        createExpense();
-    }
-
-    /**
-     * Parses Total obtained from OCR parse even further
-     * in order to obtain actual  dollar amount spent
-     */
-    private void obtainExpense(String total){
-        String expense="";
-
-    }
-
-    /**
      * Create expense object from total and store into Realm
      */
-    private void createExpense(){
+    private void createExpense(final String result){
         realm.executeTransaction(new Realm.Transaction(){
             @Override
             public void execute(Realm realm) {
@@ -349,11 +273,24 @@ public class MainActivity extends AppCompatActivity {
                 expense.setTotal(result);
                 expense.setCategory("Groceries");
                 expense.setStore("Target");
-                expense.setDate(new Date());
+                Date date = new Date();
+                SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+                try {
+                    date = sdf.parse("07/06/2017");
+                } catch (ParseException e) {
+                    e.printStackTrace();
+                }
+                expense.setDate(date);
+                expense.setCreatedAt(new Date());
+
             }
         });
         queryExpense();
     }
+
+    /**
+     * Simple query with search parameters
+     */
     private void queryExpense(){
         RealmResults<Expense> results = realm.where(Expense.class).equalTo("store", "Target").findAll();
         String target_expense="No Query Results";
@@ -361,10 +298,14 @@ public class MainActivity extends AppCompatActivity {
             target_expense = ("Total: " + expense.getTotal() + "\n");
             target_expense+=("Category: " + expense.getCategory() + "\n");
             target_expense+=("Store: " + expense.getStore() + "\n");
-            target_expense+=("Date: " + expense.getDate() + "\n");
+            target_expense+=("Date: " + expense.getDate().toString() + "\n");
+            target_expense+=("Created At: " + expense.getCreatedAt() + "\n");
             target_expense+=("\n");
+
         }
+        System.out.println("Query Size: " + results.size());
         receiptResult.setText(target_expense);
+        LineData lineData = new LineData();
     }
 
 
@@ -456,19 +397,8 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         protected String doInBackground(Bitmap... bitmaps) {
-            String upLetters = "ACBDEFGHIJKLMNOPQRSTUVWXYZ";
-            String downLetters="acbcdefghijklmnopqrstuvwxyz";
-            String numbers="0123456789";
-            String symbols="=*$.- ";
-            String whitelist = upLetters + downLetters + numbers + symbols;
-            tessAPI = new TessBaseAPI();
-            tessAPI.init(DATA_PATH,"eng");
-            tessAPI.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST,whitelist);
-            tessAPI.setImage(bitmaps[0]);
             publishProgress("Processing Image");
-            result = tessAPI.getUTF8Text();
-            tessAPI.end();
-            return result;
+            return ocr.doOCR(bitmaps[0]);
         }
 
         @Override
@@ -477,9 +407,14 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        protected void onPostExecute(String s) {
-            receiptResult.setText(result);
-            obtainTotal();
+        protected void onPostExecute(String result) {
+            if(result!=null){
+                receiptResult.setText(result);
+                createExpense(result);
+            }
+            else{
+                receiptResult.setText("OCR FAILED");
+            }
         }
     }
 

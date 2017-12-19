@@ -1,4 +1,4 @@
-package com.kshah21.readreceipts;
+package com.kshah21.readreceipts.Bookkeeping;
 
 
 import java.util.Date;
@@ -10,6 +10,7 @@ public class Expense extends RealmObject{
     private Date date;
     private String category;
     private String store;
+    private Date createdAt;
 
     public String getTotal(){
         return total;
@@ -23,6 +24,9 @@ public class Expense extends RealmObject{
     public String getStore(){
         return store;
     }
+    public Date getCreatedAt() {
+        return createdAt;
+    }
     public void setTotal(String total){
         this.total=total;
     }
@@ -34,6 +38,9 @@ public class Expense extends RealmObject{
     }
     public void setStore(String store){
         this.store=store;
+    }
+    public void setCreatedAt(Date createdAt) {
+        this.createdAt = createdAt;
     }
 
     public Expense(){
