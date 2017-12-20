@@ -27,6 +27,7 @@ import android.widget.Toast;
 import com.github.mikephil.charting.data.BarData;
 import com.github.mikephil.charting.data.LineData;
 import com.kshah21.readreceipts.Bookkeeping.Expense;
+import com.kshah21.readreceipts.Bookkeeping.RealmWrapper;
 import com.kshah21.readreceipts.OCR.OCR;
 import com.kshah21.readreceipts.R;
 
@@ -52,7 +53,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView receiptResult;
 
     private OCR ocr;
-    private Realm realm;
+    private RealmWrapper realm;
     private String currentPhotoPath;
 
     private final String DATA_PATH = Environment.getExternalStorageDirectory() + "/ReadReceipts";
@@ -80,14 +81,6 @@ public class MainActivity extends AppCompatActivity {
         receiptView = (ImageView) findViewById(R.id.ocr_image);
         receiptResult = (TextView) findViewById(R.id.ocr_result);
 
-        //Init RealmDB
-        Realm.init(this);
-        realm=Realm.getDefaultInstance();
-        RealmConfiguration realmConfiguration = new RealmConfiguration
-                .Builder()
-                .deleteRealmIfMigrationNeeded()
-                .build();
-        Realm.setDefaultConfiguration(realmConfiguration);
     }
 
     /**
@@ -262,52 +255,6 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
 
-    /**
-     * Create expense object from total and store into Realm
-     */
-    private void createExpense(final String result){
-        realm.executeTransaction(new Realm.Transaction(){
-            @Override
-            public void execute(Realm realm) {
-                Expense expense = realm.createObject(Expense.class);
-                expense.setTotal(result);
-                expense.setCategory("Groceries");
-                expense.setStore("Target");
-                Date date = new Date();
-                SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
-                try {
-                    date = sdf.parse("07/06/2017");
-                } catch (ParseException e) {
-                    e.printStackTrace();
-                }
-                expense.setDate(date);
-                expense.setCreatedAt(new Date());
-
-            }
-        });
-        queryExpense();
-    }
-
-    /**
-     * Simple query with search parameters
-     */
-    private void queryExpense(){
-        RealmResults<Expense> results = realm.where(Expense.class).equalTo("store", "Target").findAll();
-        String target_expense="No Query Results";
-        for(Expense expense:results) {
-            target_expense = ("Total: " + expense.getTotal() + "\n");
-            target_expense+=("Category: " + expense.getCategory() + "\n");
-            target_expense+=("Store: " + expense.getStore() + "\n");
-            target_expense+=("Date: " + expense.getDate().toString() + "\n");
-            target_expense+=("Created At: " + expense.getCreatedAt() + "\n");
-            target_expense+=("\n");
-
-        }
-        System.out.println("Query Size: " + results.size());
-        receiptResult.setText(target_expense);
-        LineData lineData = new LineData();
-    }
-
 
     /****************************Utility Functions****************************/
 
@@ -410,7 +357,8 @@ public class MainActivity extends AppCompatActivity {
         protected void onPostExecute(String result) {
             if(result!=null){
                 receiptResult.setText(result);
-                createExpense(result);
+                realm.createExpense(result);
+                receiptResult.setText(realm.queryExpense());
             }
             else{
                 receiptResult.setText("OCR FAILED");
