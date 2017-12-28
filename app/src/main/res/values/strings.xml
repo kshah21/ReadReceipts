@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">ReadReceipts</string>
+    <string-array name="drawer_options">
+        <item>Portfolio Overview</item>
+        <item>Capture Expense</item>
+        <item>View Reports</item>
+        <item>View Receipts</item>
+    </string-array>
+    <string name="drawer_open">Open Drawer</string>
+    <string name="drawer_close">Close Drawer</string>
 </resources>
