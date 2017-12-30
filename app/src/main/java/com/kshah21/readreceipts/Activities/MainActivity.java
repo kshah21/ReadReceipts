@@ -42,6 +42,10 @@ import com.kshah21.readreceipts.Adapters.DrawerAdapter;
 import com.kshah21.readreceipts.Bookkeeping.Expense;
 import com.kshah21.readreceipts.Bookkeeping.RealmWrapper;
 import com.kshah21.readreceipts.Fragments.CaptureFragment;
+import com.kshah21.readreceipts.Fragments.OverviewFragment;
+import com.kshah21.readreceipts.Fragments.ReceiptsFragment;
+import com.kshah21.readreceipts.Fragments.ReportsFragment;
+import com.kshah21.readreceipts.Interfaces.FragCommunicator;
 import com.kshah21.readreceipts.OCR.OCR;
 import com.kshah21.readreceipts.R;
 
@@ -60,16 +64,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnItemClickListener {
-
-    private Button cameraButton;
-    private Button galleryButton;
-    private ImageView receiptView;
-    private TextView receiptResult;
-
-    private OCR ocr;
-    private RealmWrapper realm;
-    private String currentPhotoPath;
+public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnDrawerItemClickListener, FragCommunicator{
 
     private DrawerLayout drawerLayout;
     private RecyclerView drawerList;
@@ -78,16 +73,14 @@ public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnI
     private CharSequence mainTitle;
     private String[] listOptions;
 
-    private final String DATA_PATH = Environment.getExternalStorageDirectory() + "/ReadReceipts";
     private final String CAM_PERMISSION="android.permission.CAMERA";
     private final String WRITE_PERMISSION="android.permission.WRITE_EXTERNAL_STORAGE";
     private final String READ_PERMISSION="android.permission.READ_EXTERNAL_STORAGE";
 
     private final Integer GRANTED = PackageManager.PERMISSION_GRANTED;
     private final int REQUEST_ALL_PERMS = 512;
-    private final int REQUEST_TAKE_PIC = 1024;
-    private final int REQUEST_PICK_PIC = 2048;
 
+    private boolean permissionsGranted;
 
     /**
      * Inflate views and setup
@@ -96,12 +89,6 @@ public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnI
         //Create and inflate layout
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        //Bind fields to respective GUI
-        cameraButton = (Button) findViewById(R.id.camera_button);
-        galleryButton = (Button) findViewById(R.id.gallery_button);
-        receiptView = (ImageView) findViewById(R.id.ocr_image);
-        receiptResult = (TextView) findViewById(R.id.ocr_result);
 
         //Drawer set-up
         drawerTitle = mainTitle = getTitle();
@@ -143,7 +130,7 @@ public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnI
 
         //If no previous saved state, load default
         if (savedInstanceState == null) {
-            //selectItem(0);
+            selectItem(0);
         }
     }
 
@@ -199,7 +186,7 @@ public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnI
      * Interface for Drawer Items
      */
     @Override
-    public void onClick(View view, int position) {
+    public void onDrawerClick(View view, int position) {
         selectItem(position);
     }
 
@@ -207,7 +194,19 @@ public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnI
      * Loads fragment based upon what item in drawer is selected
      */
     private void selectItem(int pos){
-        Fragment fragment = CaptureFragment.newInstance(pos);
+        Fragment fragment;
+        if(pos==0){
+            fragment = OverviewFragment.newInstance(pos);
+        }
+        else if(pos==1){
+            fragment = CaptureFragment.newInstance(pos);
+        }
+        else if(pos==2){
+            fragment = ReportsFragment.newInstance(pos);
+        }
+        else{
+            fragment = ReceiptsFragment.newInstance(pos);
+        }
 
         FragmentManager manager = getFragmentManager();
         FragmentTransaction transaction = manager.beginTransaction();
@@ -246,180 +245,10 @@ public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnI
         drawerToggle.onConfigurationChanged(newConfig);
     }
 
-    /**
-     * Launches Camera Open
-     */
-    private void launchCamera(){
-        System.out.println("Launch Camera");
-        String imgPath=DATA_PATH+"/imgs";
-        File dir = new File(imgPath);
-        if(!dir.exists()){
-            dir.mkdirs();
-        }
-        //Open camera to take picture
-        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        if(cameraIntent.resolveActivity(getPackageManager())!=null){
-            File photoFile=null;
-            try{
-                photoFile=createImageFile();
-            }
-            catch(IOException ex){
-                //Error occurred while creating the file
-            }
-            if(photoFile!=null){
-                Uri photoURI;
-                if(Build.VERSION.SDK_INT>=24){
-                    photoURI=FileProvider.getUriForFile(this,"com.kshah21.readreceipts.provider",photoFile);
-                }
-                else{
-                    photoURI = Uri.fromFile(photoFile);
-                }
-                cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);
-                startActivityForResult(cameraIntent,REQUEST_TAKE_PIC);
-            }
-        }
+
+    public boolean getPermissionStatus(){
+        return permissionsGranted;
     }
-
-    /**
-     * Launches Gallery Open
-     */
-    private void launchGallery(){
-        Intent galleryIntent = new Intent(Intent.ACTION_GET_CONTENT);
-        galleryIntent.setType("image/*");
-        startActivityForResult(galleryIntent,REQUEST_PICK_PIC);
-    }
-
-    /**
-     * http://developer.android.com/training/camera/photobasics.html
-     */
-    private File createImageFile() throws IOException {
-        System.out.println("Create Image File");
-        // Create an image file name
-        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss")
-                .format(new Date());
-        String imageFileName = "JPEG_" + timeStamp + "_";
-        String storageDir = DATA_PATH+"/imgs";
-        File dir = new File(storageDir);
-        if (!dir.exists())
-            dir.mkdir();
-
-        File image = new File(storageDir + "/" + imageFileName + ".jpg");
-
-        // Save a file: path for use with ACTION_VIEW intents
-        currentPhotoPath = image.getAbsolutePath();
-        System.out.println(currentPhotoPath);
-        return image;
-    }
-
-    /**
-     * Called after returning from Pictures Intents
-     */
-    protected void onActivityResult(int requestCode, int resultCode, Intent data){
-        switch (requestCode){
-            case REQUEST_TAKE_PIC:{
-                if(resultCode== Activity.RESULT_OK){
-                    setPic();
-                }
-                break;
-            }
-            case REQUEST_PICK_PIC:{
-                if(resultCode==Activity.RESULT_OK){
-                    Uri imageUri = data.getData();
-                    setPic(imageUri);
-                }
-            }
-        }
-    }
-
-    /**
-     * Obtain picture, set to image view, and send to ocr
-     */
-    private void setPic(){
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inJustDecodeBounds=false;
-        Bitmap bitmap= BitmapFactory.decodeFile(currentPhotoPath,options);
-        bitmap = fixPic(bitmap);
-        receiptView.setImageBitmap(bitmap);
-
-        ocr = new OCR(this);
-        new OCR_Task().execute(bitmap);
-    }
-
-    /**
-     * Obtain picture, set to image view, and send to ocr
-     */
-    private void setPic(Uri imageUri){
-        try {
-            Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), imageUri);
-            bitmap.copy(Bitmap.Config.ARGB_8888,true);
-            bitmap.setDensity(300);
-            receiptView.setImageBitmap(bitmap);
-
-            ocr = new OCR(this);
-            new OCR_Task().execute(bitmap);
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-    }
-
-    /**
-     * Rotates image taken by camera if necessary
-     */
-    private Bitmap fixPic(Bitmap bitmap){
-        try {
-            ExifInterface exif = new ExifInterface(currentPhotoPath);
-            int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION,ExifInterface.ORIENTATION_NORMAL);
-            int rotate = 0;
-            switch (orientation){
-                case ExifInterface.ORIENTATION_ROTATE_90:
-                    rotate=90;
-                    break;
-                case ExifInterface.ORIENTATION_ROTATE_180:
-                    rotate=180;
-                    break;
-                case ExifInterface.ORIENTATION_ROTATE_270:
-                    rotate=270;
-                    break;
-            }
-            System.out.println(rotate);
-            if(rotate!=0){
-                int width = bitmap.getWidth();
-                int height = bitmap.getHeight();
-                Matrix matrix = new Matrix();
-                matrix.preRotate(rotate);
-                bitmap = Bitmap.createBitmap(bitmap,0,0,width,height,matrix,true);
-            }
-            return bitmap.copy(Bitmap.Config.ARGB_8888,true);
-        }
-        catch (IOException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    /**
-     * Listener for Camera Button
-     */
-    View.OnClickListener cameraListener= new View.OnClickListener(){
-
-        public void onClick(View view) {
-            Toast.makeText(MainActivity.this,"Camera Button Clicked!!",Toast.LENGTH_LONG).show();
-            launchCamera();
-        }
-    };
-
-    /**
-     * Listener for Gallery Button
-     */
-    View.OnClickListener galleryListener= new View.OnClickListener(){
-
-        public void onClick(View view) {
-            Toast.makeText(MainActivity.this,"Camera Button Clicked!!",Toast.LENGTH_LONG).show();
-            launchGallery();
-        }
-    };
 
     /**
      * Check/Request multiple permissions
@@ -440,9 +269,7 @@ public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnI
             ActivityCompat.requestPermissions(this,permissionList.toArray(new String[size]),REQUEST_ALL_PERMS);
         }
         else{
-            cameraButton.setOnClickListener(cameraListener);
-            galleryButton.setOnClickListener(galleryListener);
-
+            permissionsGranted = true;
         }
     }
 
@@ -464,8 +291,7 @@ public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnI
                     }
                     if(perms.get(CAM_PERMISSION)==GRANTED && perms.get(READ_PERMISSION)==GRANTED
                             && perms.get(WRITE_PERMISSION)==GRANTED){
-                        cameraButton.setOnClickListener(cameraListener);
-                        galleryButton.setOnClickListener(galleryListener);
+                        permissionsGranted = true;
                     }
                     else{
                     }
@@ -473,39 +299,6 @@ public class MainActivity extends AppCompatActivity implements DrawerAdapter.OnI
             }
         }
     }//End onPermissionRequest
-
-    /**
-     * AsyncThread Class which handles OCR processing
-     */
-    private class OCR_Task extends AsyncTask<Bitmap,String,String> {
-        @Override
-        protected void onPreExecute() {
-            receiptResult.setText("Obtained Image");
-        }
-
-        @Override
-        protected String doInBackground(Bitmap... bitmaps) {
-            publishProgress("Processing Image");
-            return ocr.doOCR(bitmaps[0]);
-        }
-
-        @Override
-        protected void onProgressUpdate(String... values) {
-            receiptResult.setText(values[0]);
-        }
-
-        @Override
-        protected void onPostExecute(String result) {
-            if(result!=null){
-                receiptResult.setText(result);
-                realm.createExpense(result);
-                receiptResult.setText(realm.queryExpense());
-            }
-            else{
-                receiptResult.setText("OCR FAILED");
-            }
-        }
-    }
 
 }//End class
 

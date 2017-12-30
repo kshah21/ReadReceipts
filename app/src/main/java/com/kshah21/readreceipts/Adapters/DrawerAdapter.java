@@ -15,7 +15,7 @@ import com.kshah21.readreceipts.R;
 public class DrawerAdapter extends RecyclerView.Adapter<DrawerAdapter.ViewHolder> {
 
     private String[] dataSet;
-    private OnItemClickListener clickListener;
+    private OnDrawerItemClickListener clickListener;
 
     /**
      * Custom ViewHolder
@@ -32,14 +32,14 @@ public class DrawerAdapter extends RecyclerView.Adapter<DrawerAdapter.ViewHolder
     /**
      * Interface for onClick events
      */
-    public interface OnItemClickListener {
-        public void onClick(View view, int position);
+    public interface OnDrawerItemClickListener {
+        public void onDrawerClick(View view, int position);
     }
 
     /**
      * Constructor
      */
-    public DrawerAdapter(String[] dataSet, OnItemClickListener clickListener){
+    public DrawerAdapter(String[] dataSet, OnDrawerItemClickListener clickListener){
         this.dataSet = dataSet;
         this.clickListener = clickListener;
     }
@@ -64,7 +64,7 @@ public class DrawerAdapter extends RecyclerView.Adapter<DrawerAdapter.ViewHolder
         holder.textView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                clickListener.onClick(view, position);
+                clickListener.onDrawerClick(view, position);
             }
         });
     }
